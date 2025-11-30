@@ -12,20 +12,21 @@
 - 🔢 **6 位房间号** - 使用简单的 6 位数字作为房间 ID
 - 📹 **摄像头选择** - 支持选择任意摄像头作为视频源
 - 🎚️ **画质调节** - 支持 480p/720p/1080p 多种画质
+- 🎥 **WebCodecs 编码** - 服务器转发模式使用高效视频编码 (VP9/VP8/H264)
 
 ## 技术架构
 
-```
+```text
 ┌─────────────────────────────────────────────────────────────┐
-│                       信令服务器                              │
-│                    (WebSocket + HTTP)                        │
+│                       信令服务器                             │
+│                    (WebSocket + HTTP)                       │
 └─────────────────────────────────────────────────────────────┘
            │                                    │
            │ 信令交换                            │ 信令交换
            │ (SDP/ICE)                          │ (SDP/ICE)
            ▼                                    ▼
 ┌─────────────────┐     P2P/TURN/Relay     ┌─────────────────┐
-│    主播客户端    │◄─────────────────────►│    观看者客户端   │
+│    主播客户端    │◄─────────────────────► │   观看者客户端   │
 │   (浏览器)      │     视频流传输          │   (浏览器)       │
 └─────────────────┘                        └─────────────────┘
 ```
@@ -33,8 +34,8 @@
 ### 连接策略
 
 1. **P2P 直连** (优先) - 通过 STUN 服务器获取公网地址，直接 P2P 连接
-2. **TURN 中继** (备选) - 如果 P2P 失败，使用公共 TURN 服务器中继
-3. **服务器转发** (最后) - 如果 TURN 也不可用，使用服务器转发视频帧
+2. **TURN 中继** (备选) - 如果 P2P 失败，使用 TURN 服务器中继
+3. **服务器转发** (最后) - 如果 TURN 也不可用，使用服务器转发视频流
 
 ## 安装和运行
 
@@ -75,28 +76,42 @@ python server.py
 
 ## 视频编解码
 
-系统自动选择最优编解码器，优先级：
+### P2P 模式
 
-- **AV1** - 最先进，最佳压缩效率
-- **VP9** - 良好压缩，广泛支持
-- **VP8** - 兼容性好
-- **H.264** - 硬件加速支持
+系统自动选择浏览器支持的最优编解码器。
+
+### 服务器转发模式
+
+使用 WebCodecs API 进行高效视频编码，优先级：
+
+- **VP9** (vp09.00.10.08) - 最佳压缩效率，现代浏览器支持
+- **VP8** - 广泛支持，良好兼容性
+- **H.264** (avc1.42E01E) - 硬件加速支持
+- **JPEG** (回退) - 用于不支持 WebCodecs 的浏览器
+
+| 模式                   | 编码方式     | 带宽占用 | 适用场景             |
+| ---------------------- | ------------ | -------- | -------------------- |
+| P2P                    | 浏览器原生   | 最低     | NAT 穿透成功         |
+| TURN                   | 浏览器原生   | 低       | P2P 失败但 TURN 可用 |
+| 服务器转发 (WebCodecs) | VP9/VP8/H264 | 中       | 现代浏览器           |
+| 服务器转发 (JPEG 回退) | JPEG 图片    | 高       | 旧版浏览器           |
 
 ## 公共 STUN/TURN 服务器
 
-系统使用以下公共服务器：
+系统使用以下服务器：
 
 ### STUN 服务器
 
+- stun.relay.metered.ca:80
 - stun.l.google.com:19302
-- stun1-4.l.google.com:19302
-- stun.stunprotocol.org:3478
+- stun1.l.google.com:19302
 
-### TURN 服务器
+### TURN 服务器 (Metered.ca)
 
-- openrelay.metered.ca (TCP/UDP)
-
-> 注意：公共 TURN 服务器可能不稳定，生产环境建议部署自己的 TURN 服务器
+- global.relay.metered.ca:80 (UDP)
+- global.relay.metered.ca:80 (TCP)
+- global.relay.metered.ca:443 (TLS)
+- global.relay.metered.ca:443 (TURNS/TCP)
 
 ## API 接口
 
@@ -121,6 +136,9 @@ python server.py
 
 // 请求服务器转发
 { "type": "request_relay", "room_id": "123456" }
+
+// 编解码器配置 (主播发送)
+{ "type": "codec_config", "codec": "vp09.00.10.08", "width": 1280, "height": 720 }
 ```
 
 #### 服务器发送
@@ -135,13 +153,33 @@ python server.py
 // 加入房间成功
 { "type": "room_joined", "room_id": "123456", "broadcaster_id": "xxx" }
 
+// 编解码器配置 (转发给观看者)
+{ "type": "codec_config", "codec": "vp09.00.10.08", "width": 1280, "height": 720 }
+
 // 统计信息
 { "type": "stats_summary", "viewer_count": 5, "current_bitrate": 1500, ... }
 ```
 
+### 二进制消息格式 (服务器转发)
+
+WebCodecs 编码帧格式：
+
+```text
+[类型 1字节][时间戳 8字节][时长 4字节][视频数据...]
+- 类型: 0=普通帧, 1=关键帧
+- 时间戳: Float64 (微秒)
+- 时长: Uint32 (微秒)
+```
+
+JPEG 回退格式：
+
+```text
+[0xFF 1字节][JPEG数据...]
+```
+
 ### REST API
 
-```
+```text
 GET /                 - 主页面
 GET /api/rooms        - 获取活跃房间列表
 GET /api/ice-servers  - 获取ICE服务器配置
@@ -151,26 +189,38 @@ GET /api/ice-servers  - 获取ICE服务器配置
 
 需要现代浏览器支持：
 
-- Chrome 80+
-- Firefox 75+
-- Safari 14+
-- Edge 80+
+- Chrome 94+ (完整 WebCodecs 支持)
+- Firefox 130+ (WebCodecs 支持)
+- Safari 16.4+ (部分 WebCodecs 支持)
+- Edge 94+ (完整 WebCodecs 支持)
+
+> 注：不支持 WebCodecs 的浏览器将自动回退到 JPEG 模式
 
 ## 文件结构
 
-```
+```text
 webrtc_streaming/
-├── server.py           # 信令服务器
+├── server.py           # 信令服务器 (Python + aiohttp)
 ├── requirements.txt    # Python依赖
+├── start.bat          # Windows启动脚本
 ├── README.md          # 说明文档
 └── static/
     ├── index.html     # 前端页面
-    └── app.js         # 前端逻辑
+    └── app.js         # 前端逻辑 (WebRTC + WebCodecs)
 ```
+
+## 画质预设
+
+| 预设          | 分辨率    | 帧率  | 码率    |
+| ------------- | --------- | ----- | ------- |
+| 流畅 (low)    | 854×480   | 24fps | 800kbps |
+| 高清 (medium) | 1280×720  | 30fps | 1.5Mbps |
+| 超清 (high)   | 1920×1080 | 30fps | 3Mbps   |
 
 ## 性能优化
 
-- 使用最先进的视频编解码器 (AV1/VP9)
-- 根据网络状况自动调整码率
+- 使用 WebCodecs API 进行高效视频编码 (VP9/VP8)
 - P2P 优先，减少服务器负载
-- WebSocket 保持长连接，减少延迟
+- 关键帧间隔 60 帧，平衡压缩效率和随机访问
+- WebSocket 保持长连接，减少信令延迟
+- 自动降级兼容旧版浏览器
