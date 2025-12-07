@@ -1,12 +1,12 @@
 /**
  * WebRTC Video Streaming Client
  * ============================
- * 支持功能:
- * - WebRTC P2P视频传输
- * - NAT打洞 (STUN/TURN)
- * - 服务器转发回退
- * - 多客户端观看
- * - 实时统计信息
+ * Features:
+ * - WebRTC P2P video transmission
+ * - NAT traversal (STUN/TURN)
+ * - Server relay fallback
+ * - Multi-viewer
+ * - Realtime statistics
  */
 
 class WebRTCStreamingClient {
@@ -18,10 +18,10 @@ class WebRTCStreamingClient {
         this.localStream = null;
         this.iceServers = [];
 
-        // 存储与各个对等端的连接
+        // Peer connections
         this.peerConnections = new Map();
 
-        // 视频质量配置
+        // Video quality presets
         this.qualityPresets = {
             low: { width: 854, height: 480, frameRate: 24, bitrate: 800000 },
             medium: { width: 1280, height: 720, frameRate: 30, bitrate: 1500000 },
@@ -29,7 +29,7 @@ class WebRTCStreamingClient {
         };
         this.currentQuality = 'medium';
 
-        // 统计信息
+        // Stats
         this.stats = {
             bytesSent: 0,
             bytesReceived: 0,
@@ -40,12 +40,12 @@ class WebRTCStreamingClient {
         this.statsInterval = null;
         this.streamStartTime = null;
 
-        // 服务器转发相关
+        // Relay mode
         this.isRelayMode = false;
         this.relayCanvas = null;
         this.relayCtx = null;
 
-        // WebCodecs 编解码器
+        // WebCodecs
         this.videoEncoder = null;
         this.videoDecoder = null;
         this.encoderConfig = null;
@@ -53,7 +53,7 @@ class WebRTCStreamingClient {
         this.isEncoderReady = false;
         this.isDecoderReady = false;
         this.frameCounter = 0;
-        this.keyFrameInterval = 60; // 每60帧一个关键帧
+        this.keyFrameInterval = 60; // keyframe every 60 frames
 
         this.init();
     }
@@ -65,7 +65,7 @@ class WebRTCStreamingClient {
         this.setupEventListeners();
     }
 
-    // ==================== WebSocket连接 ====================
+    // ==================== WebSocket ====================
 
     connectWebSocket() {
         const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -74,40 +74,42 @@ class WebRTCStreamingClient {
         this.ws = new WebSocket(wsUrl);
 
         this.ws.onopen = () => {
-            console.log('WebSocket连接成功');
-            this.updateStatus('connected', '已连接到服务器');
+            console.log('WebSocket connected');
+            // Broadcaster panel: "Connected"
+            this.updateStatus('connected', 'Connected', 'broadcaster');
+            // Viewer panel: "Connected to server"
+            this.updateStatus('connected', 'Connected to server', 'viewer');
         };
 
         this.ws.onclose = () => {
-            console.log('WebSocket连接断开');
-            this.updateStatus('disconnected', '连接已断开');
-            // 尝试重连
+            console.log('WebSocket disconnected');
+            this.updateStatus('disconnected', 'Disconnected', 'both');
             setTimeout(() => this.connectWebSocket(), 3000);
         };
 
         this.ws.onerror = (error) => {
-            console.error('WebSocket错误:', error);
-            this.showMessage('连接错误', 'error');
+            console.error('WebSocket error:', error);
+            this.showMessage('Connection error', 'error');
         };
 
         this.ws.onmessage = (event) => {
             if (typeof event.data === 'string') {
                 this.handleMessage(JSON.parse(event.data));
             } else {
-                // 二进制数据 - 服务器转发的视频帧
+                // Binary data: relayed video frame
                 this.handleRelayFrame(event.data);
             }
         };
     }
 
     handleMessage(data) {
-        console.log('收到消息:', data.type);
+        console.log('Received message:', data.type);
 
         switch (data.type) {
             case 'welcome':
                 this.clientId = data.client_id;
                 this.iceServers = data.ice_servers;
-                console.log('客户端ID:', this.clientId);
+                console.log('Client ID:', this.clientId);
                 break;
 
             case 'room_created':
@@ -147,11 +149,11 @@ class WebRTCStreamingClient {
                 break;
 
             case 'relay_enabled':
-                this.showMessage('已切换到服务器转发模式', 'info');
+                this.showMessage('Switched to server relay mode', 'info');
                 break;
 
             case 'codec_config':
-                // 收到编解码器配置，初始化解码器
+                // Received codec config for decoder
                 this.configureDecoder(data.codec, data.width, data.height);
                 break;
 
@@ -161,7 +163,7 @@ class WebRTCStreamingClient {
         }
     }
 
-    // ==================== 摄像头和质量设置 ====================
+    // ==================== Camera & quality ====================
 
     async setupCameraSelect() {
         try {
@@ -169,23 +171,24 @@ class WebRTCStreamingClient {
             const videoDevices = devices.filter(d => d.kind === 'videoinput');
 
             const select = document.getElementById('cameraSelect');
-            select.innerHTML = '<option value="">选择摄像头...</option>';
+            select.innerHTML = '<option value="">Select camera...</option>';
 
             videoDevices.forEach((device, index) => {
                 const option = document.createElement('option');
                 option.value = device.deviceId;
-                option.text = device.label || `摄像头 ${index + 1}`;
+                option.text = device.label || `Camera ${index + 1}`;
                 select.appendChild(option);
             });
 
-            // 选择变更时预览
+            // Preview on camera change
             select.addEventListener('change', async () => {
                 if (select.value && !this.isBroadcasting()) {
                     await this.previewCamera(select.value);
                 }
             });
+
         } catch (err) {
-            console.error('获取摄像头列表失败:', err);
+            console.error('Failed to get camera list:', err);
         }
     }
 
@@ -197,7 +200,6 @@ class WebRTCStreamingClient {
                 btn.classList.add('active');
                 this.currentQuality = btn.dataset.quality;
 
-                // 如果正在直播，更新编码参数
                 if (this.isBroadcasting()) {
                     this.updateEncodingParams();
                 }
@@ -206,13 +208,12 @@ class WebRTCStreamingClient {
     }
 
     setupEventListeners() {
-        // 房间号输入框只允许数字
+        // Room input: numbers only
         const roomInput = document.getElementById('roomIdInput');
         roomInput.addEventListener('input', (e) => {
             e.target.value = e.target.value.replace(/[^0-9]/g, '');
         });
 
-        // 回车加入房间
         roomInput.addEventListener('keypress', (e) => {
             if (e.key === 'Enter') {
                 joinRoom();
@@ -244,12 +245,12 @@ class WebRTCStreamingClient {
             video.srcObject = this.localStream;
 
         } catch (err) {
-            console.error('获取摄像头失败:', err);
-            this.showMessage('无法访问摄像头: ' + err.message, 'error');
+            console.error('Failed to access camera:', err);
+            this.showMessage('Cannot access camera: ' + err.message, 'error');
         }
     }
 
-    // ==================== 直播功能 ====================
+    // ==================== Broadcast ====================
 
     isBroadcasting() {
         return this.isBroadcaster && this.roomId !== null;
@@ -258,24 +259,27 @@ class WebRTCStreamingClient {
     async startBroadcast() {
         const cameraSelect = document.getElementById('cameraSelect');
         if (!cameraSelect.value) {
-            this.showMessage('请先选择摄像头', 'error');
+            this.showMessage('Please select a camera first', 'error');
             return;
         }
 
-        // 获取摄像头流
+        // Get camera stream
         await this.previewCamera(cameraSelect.value);
 
         if (!this.localStream) {
-            this.showMessage('无法获取视频流', 'error');
+            this.showMessage('Cannot get video stream', 'error');
             return;
         }
 
         this.isBroadcaster = true;
 
-        // 创建房间
+        if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+            this.showMessage('Connecting to server, please try again shortly', 'error');
+            return;
+        }
+
         this.send({ type: 'create_room' });
 
-        // 更新UI
         document.getElementById('startBroadcastBtn').disabled = true;
         document.getElementById('stopBroadcastBtn').disabled = false;
         document.getElementById('cameraSelect').disabled = true;
@@ -284,7 +288,6 @@ class WebRTCStreamingClient {
     handleRoomCreated(data) {
         this.roomId = data.room_id;
 
-        // 显示房间信息
         document.getElementById('roomInfo').style.display = 'block';
         document.getElementById('roomIdDisplay').textContent = this.roomId;
         document.getElementById('liveBadge').style.display = 'block';
@@ -293,33 +296,29 @@ class WebRTCStreamingClient {
         this.streamStartTime = Date.now();
         this.startStatsUpdate();
 
-        this.showMessage(`直播已开始! 房间号: ${this.roomId}`, 'success');
+        this.showMessage(`Streaming started! Room ID: ${this.roomId}`, 'success');
 
-        // 开始发送服务器转发的帧（用于备用）
+        // Start relay backup
         this.startRelayFrameSender();
     }
 
     stopBroadcast() {
-        // 关闭所有连接
-        this.peerConnections.forEach((pc, peerId) => {
+        this.peerConnections.forEach((pc) => {
             pc.close();
         });
         this.peerConnections.clear();
 
-        // 停止本地流
         if (this.localStream) {
             this.localStream.getTracks().forEach(track => track.stop());
             this.localStream = null;
         }
 
-        // 通知服务器
         this.send({ type: 'leave_room' });
 
         this.isBroadcaster = false;
         this.roomId = null;
         this.stopStatsUpdate();
 
-        // 更新UI
         document.getElementById('startBroadcastBtn').disabled = false;
         document.getElementById('stopBroadcastBtn').disabled = true;
         document.getElementById('cameraSelect').disabled = false;
@@ -328,17 +327,16 @@ class WebRTCStreamingClient {
         document.getElementById('broadcasterStats').style.display = 'none';
         document.getElementById('localVideo').srcObject = null;
 
-        this.showMessage('直播已结束', 'info');
+        this.showMessage('Streaming stopped', 'info');
     }
 
     handleViewerJoined(data) {
         const viewerId = data.viewer_id;
-        console.log('新观看者:', viewerId);
+        console.log('New viewer:', viewerId);
 
-        // 创建与新观看者的P2P连接
         this.createPeerConnection(viewerId, true);
 
-        this.showMessage(`新观看者加入 (${data.viewer_count}人在看)`, 'info');
+        this.showMessage(`New viewer joined (${data.viewer_count} watching)`, 'info');
     }
 
     handleViewerLeft(data) {
@@ -352,13 +350,13 @@ class WebRTCStreamingClient {
         document.getElementById('viewerCount').textContent = data.viewer_count;
     }
 
-    // ==================== 观看功能 ====================
+    // ==================== Watch ====================
 
     joinRoom() {
         const roomId = document.getElementById('roomIdInput').value.trim();
 
         if (roomId.length !== 6 || !/^\d+$/.test(roomId)) {
-            this.showMessage('请输入6位数字房间号', 'error');
+            this.showMessage('Please enter a 6-digit numeric room ID', 'error');
             return;
         }
 
@@ -372,27 +370,23 @@ class WebRTCStreamingClient {
         this.roomId = data.room_id;
         this.isBroadcaster = false;
 
-        // 更新UI
         document.getElementById('roomIdInput').disabled = true;
         document.getElementById('joinRoomBtn').style.display = 'none';
         document.getElementById('leaveRoomBtn').style.display = 'inline-flex';
         document.getElementById('watchContainer').style.display = 'flex';
         document.getElementById('viewerStats').style.display = 'block';
 
-        this.showMessage(`已加入房间 ${this.roomId}`, 'success');
+        this.showMessage(`Joined room ${this.roomId}`, 'success');
         this.startStatsUpdate();
-
-        // 等待主播的offer
     }
 
     handleRoomClosed(data) {
-        this.showMessage(data.message || '直播已结束', 'info');
+        this.showMessage(data.message || 'Stream has ended', 'info');
         this.leaveRoom();
     }
 
     leaveRoom() {
-        // 关闭连接
-        this.peerConnections.forEach((pc, peerId) => {
+        this.peerConnections.forEach((pc) => {
             pc.close();
         });
         this.peerConnections.clear();
@@ -403,7 +397,6 @@ class WebRTCStreamingClient {
         this.isRelayMode = false;
         this.stopStatsUpdate();
 
-        // 更新UI
         document.getElementById('roomIdInput').disabled = false;
         document.getElementById('roomIdInput').value = '';
         document.getElementById('joinRoomBtn').style.display = 'inline-flex';
@@ -413,10 +406,10 @@ class WebRTCStreamingClient {
         document.getElementById('remoteVideo').srcObject = null;
     }
 
-    // ==================== WebRTC P2P连接 ====================
+    // ==================== WebRTC P2P ====================
 
     createPeerConnection(peerId, isInitiator) {
-        console.log(`创建PeerConnection: ${peerId}, isInitiator: ${isInitiator}`);
+        console.log(`Create PeerConnection: ${peerId}, isInitiator: ${isInitiator}`);
 
         const config = {
             iceServers: this.iceServers,
@@ -426,7 +419,6 @@ class WebRTCStreamingClient {
         const pc = new RTCPeerConnection(config);
         this.peerConnections.set(peerId, pc);
 
-        // ICE候选
         pc.onicecandidate = (event) => {
             if (event.candidate) {
                 this.send({
@@ -437,44 +429,37 @@ class WebRTCStreamingClient {
             }
         };
 
-        // ICE连接状态
         pc.oniceconnectionstatechange = () => {
-            console.log(`ICE状态 [${peerId}]:`, pc.iceConnectionState);
+            console.log(`ICE state [${peerId}]:`, pc.iceConnectionState);
 
             if (pc.iceConnectionState === 'failed') {
-                // P2P连接失败，请求服务器转发
-                console.log('P2P连接失败，切换到服务器转发模式');
+                console.log('P2P connection failed, switching to server relay mode');
                 this.requestRelayMode();
             } else if (pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed') {
                 this.updateConnectionType('P2P');
             }
         };
 
-        // 连接状态
         pc.onconnectionstatechange = () => {
-            console.log(`连接状态 [${peerId}]:`, pc.connectionState);
+            console.log(`Connection state [${peerId}]:`, pc.connectionState);
         };
 
-        // 接收远程流
         pc.ontrack = (event) => {
-            console.log('收到远程轨道:', event.track.kind);
+            console.log('Received remote track:', event.track.kind);
             const video = document.getElementById('remoteVideo');
             if (video.srcObject !== event.streams[0]) {
                 video.srcObject = event.streams[0];
             }
         };
 
-        // 如果是主播，添加本地流
         if (this.isBroadcaster && this.localStream) {
             this.localStream.getTracks().forEach(track => {
                 pc.addTrack(track, this.localStream);
             });
 
-            // 设置编码参数
             this.setEncodingParams(pc);
         }
 
-        // 如果是发起者，创建offer
         if (isInitiator) {
             this.createAndSendOffer(pc, peerId);
         }
@@ -497,13 +482,13 @@ class WebRTCStreamingClient {
                 sdp: pc.localDescription.toJSON()
             });
         } catch (err) {
-            console.error('创建Offer失败:', err);
+            console.error('Failed to create offer:', err);
         }
     }
 
     async handleOffer(data) {
         const peerId = data.from_id;
-        console.log('收到Offer from:', peerId);
+        console.log('Received offer from:', peerId);
 
         let pc = this.peerConnections.get(peerId);
         if (!pc) {
@@ -522,7 +507,7 @@ class WebRTCStreamingClient {
                 sdp: pc.localDescription.toJSON()
             });
         } catch (err) {
-            console.error('处理Offer失败:', err);
+            console.error('Failed to handle offer:', err);
         }
     }
 
@@ -534,7 +519,7 @@ class WebRTCStreamingClient {
             try {
                 await pc.setRemoteDescription(new RTCSessionDescription(data.sdp));
             } catch (err) {
-                console.error('处理Answer失败:', err);
+                console.error('Failed to handle answer:', err);
             }
         }
     }
@@ -547,12 +532,12 @@ class WebRTCStreamingClient {
             try {
                 await pc.addIceCandidate(new RTCIceCandidate(data.candidate));
             } catch (err) {
-                console.error('添加ICE候选失败:', err);
+                console.error('Failed to add ICE candidate:', err);
             }
         }
     }
 
-    // ==================== 编码参数设置 ====================
+    // ==================== Encoding params ====================
 
     setEncodingParams(pc) {
         const quality = this.qualityPresets[this.currentQuality];
@@ -567,29 +552,26 @@ class WebRTCStreamingClient {
             params.encodings[0].maxBitrate = quality.bitrate;
             params.encodings[0].maxFramerate = quality.frameRate;
 
-            // 使用最先进的编解码器
-            // 优先级: AV1 > VP9 > VP8 > H264
             sender.setParameters(params).catch(err => {
-                console.warn('设置编码参数失败:', err);
+                console.warn('Failed to set encoding parameters:', err);
             });
         }
     }
 
     updateEncodingParams() {
-        this.peerConnections.forEach((pc, peerId) => {
+        this.peerConnections.forEach((pc) => {
             this.setEncodingParams(pc);
         });
     }
 
-    // ==================== 服务器转发模式 ====================
+    // ==================== Relay mode ====================
 
     requestRelayMode() {
         if (this.isRelayMode) return;
 
         this.isRelayMode = true;
-        this.updateConnectionType('服务器转发');
+        this.updateConnectionType('Relay');
 
-        // 初始化解码器
         this.initVideoDecoder();
 
         this.send({
@@ -598,17 +580,16 @@ class WebRTCStreamingClient {
         });
     }
 
-    // 初始化 WebCodecs 视频编码器 (主播端)
+    // Init WebCodecs encoder (broadcaster)
     async initVideoEncoder() {
         if (!('VideoEncoder' in window)) {
-            console.warn('WebCodecs不支持，回退到JPEG模式');
+            console.warn('WebCodecs not supported, falling back to JPEG mode');
             this.startJpegRelayFrameSender();
             return;
         }
 
         const quality = this.qualityPresets[this.currentQuality];
 
-        // 编解码器优先级: VP9 > VP8 > H264
         const codecs = [
             { codec: 'vp09.00.10.08', name: 'VP9' },
             { codec: 'vp8', name: 'VP8' },
@@ -635,12 +616,12 @@ class WebRTCStreamingClient {
         }
 
         if (!selectedCodec) {
-            console.warn('没有支持的视频编解码器，回退到JPEG');
+            console.warn('No supported video codec, falling back to JPEG');
             this.startJpegRelayFrameSender();
             return;
         }
 
-        console.log(`使用编解码器: ${selectedCodec.name}`);
+        console.log(`Using codec: ${selectedCodec.name}`);
 
         this.encoderConfig = {
             codec: selectedCodec.codec,
@@ -658,14 +639,13 @@ class WebRTCStreamingClient {
                     this.handleEncodedChunk(chunk, metadata);
                 },
                 error: (e) => {
-                    console.error('编码器错误:', e);
+                    console.error('Encoder error:', e);
                 }
             });
 
             await this.videoEncoder.configure(this.encoderConfig);
             this.isEncoderReady = true;
 
-            // 发送编解码器配置给服务器
             this.send({
                 type: 'codec_config',
                 codec: selectedCodec.codec,
@@ -673,22 +653,21 @@ class WebRTCStreamingClient {
                 height: quality.height
             });
 
-            console.log('视频编码器初始化成功');
+            console.log('Video encoder initialized');
             this.startWebCodecsFrameSender();
         } catch (e) {
-            console.error('编码器初始化失败:', e);
+            console.error('Failed to initialize encoder:', e);
             this.startJpegRelayFrameSender();
         }
     }
 
-    // 初始化 WebCodecs 视频解码器 (观看端)
+    // Init WebCodecs decoder (viewer)
     async initVideoDecoder() {
         if (!('VideoDecoder' in window)) {
-            console.warn('WebCodecs不支持，使用图片显示模式');
+            console.warn('WebCodecs not supported, using image display mode');
             return;
         }
 
-        // 创建用于显示的canvas
         if (!this.relayCanvas) {
             this.relayCanvas = document.createElement('canvas');
             this.relayCtx = this.relayCanvas.getContext('2d');
@@ -699,15 +678,14 @@ class WebRTCStreamingClient {
                 this.renderDecodedFrame(frame);
             },
             error: (e) => {
-                console.error('解码器错误:', e);
+                console.error('Decoder error:', e);
             }
         });
 
         this.isDecoderReady = false;
-        console.log('视频解码器已创建，等待配置...');
+        console.log('Video decoder created, waiting for configuration...');
     }
 
-    // 配置解码器
     async configureDecoder(codec, width, height) {
         if (!this.videoDecoder) return;
 
@@ -722,35 +700,31 @@ class WebRTCStreamingClient {
             this.relayCanvas.width = width;
             this.relayCanvas.height = height;
 
-            // 将canvas流设置为视频源
             const video = document.getElementById('remoteVideo');
             if (!video.srcObject) {
                 video.srcObject = this.relayCanvas.captureStream(30);
             }
 
             this.isDecoderReady = true;
-            console.log(`解码器配置完成: ${codec} ${width}x${height}`);
+            console.log(`Decoder configured: ${codec} ${width}x${height}`);
         } catch (e) {
-            console.error('解码器配置失败:', e);
+            console.error('Failed to configure decoder:', e);
         }
     }
 
-    // 处理编码后的数据块
     handleEncodedChunk(chunk, metadata) {
         if (this.ws.readyState !== WebSocket.OPEN) return;
 
-        // 创建包含元数据的消息
         const chunkData = new Uint8Array(chunk.byteLength);
         chunk.copyTo(chunkData);
 
-        // 构建二进制消息: [类型1字节][时间戳8字节][时长4字节][数据]
+        // [1 byte type][8 bytes timestamp][4 bytes duration][data]
         const header = new ArrayBuffer(13);
         const headerView = new DataView(header);
-        headerView.setUint8(0, chunk.type === 'key' ? 1 : 0); // 是否关键帧
+        headerView.setUint8(0, chunk.type === 'key' ? 1 : 0);
         headerView.setFloat64(1, chunk.timestamp, true);
         headerView.setUint32(9, chunk.duration || 0, true);
 
-        // 合并header和数据
         const message = new Uint8Array(13 + chunkData.length);
         message.set(new Uint8Array(header), 0);
         message.set(chunkData, 13);
@@ -758,7 +732,6 @@ class WebRTCStreamingClient {
         this.ws.send(message.buffer);
     }
 
-    // 渲染解码后的帧
     renderDecodedFrame(frame) {
         if (!this.relayCtx) return;
 
@@ -766,7 +739,7 @@ class WebRTCStreamingClient {
         frame.close();
     }
 
-    // WebCodecs帧发送器
+    // WebCodecs frame sender
     startWebCodecsFrameSender() {
         if (!this.isBroadcaster || !this.isEncoderReady) return;
 
@@ -794,17 +767,15 @@ class WebRTCStreamingClient {
                     timestamp: performance.now() * 1000
                 });
 
-                // 每隔一定帧数发送关键帧
                 const isKeyFrame = this.frameCounter % this.keyFrameInterval === 0;
                 this.videoEncoder.encode(frame, { keyFrame: isKeyFrame });
                 frame.close();
 
                 this.frameCounter++;
             } catch (e) {
-                console.warn('帧编码失败:', e);
+                console.warn('Failed to encode frame:', e);
             }
 
-            // 根据帧率发送
             const frameInterval = 1000 / this.encoderConfig.framerate;
             setTimeout(encodeFrame, frameInterval);
         };
@@ -816,7 +787,7 @@ class WebRTCStreamingClient {
         }
     }
 
-    // JPEG回退模式 (用于不支持WebCodecs的浏览器)
+    // JPEG fallback (no WebCodecs)
     startJpegRelayFrameSender() {
         if (!this.isBroadcaster) return;
 
@@ -834,9 +805,8 @@ class WebRTCStreamingClient {
 
             canvas.toBlob((blob) => {
                 if (blob && this.ws.readyState === WebSocket.OPEN) {
-                    // 添加JPEG标识头
                     blob.arrayBuffer().then(buffer => {
-                        const header = new Uint8Array([0xFF]); // JPEG标识
+                        const header = new Uint8Array([0xFF]); // JPEG flag
                         const message = new Uint8Array(1 + buffer.byteLength);
                         message.set(header, 0);
                         message.set(new Uint8Array(buffer), 1);
@@ -860,15 +830,15 @@ class WebRTCStreamingClient {
 
         const uint8 = new Uint8Array(data);
 
-        // 检查是否是JPEG (0xFF开头)
+        // JPEG (0xFF prefix)
         if (uint8[0] === 0xFF) {
             this.handleJpegFrame(uint8.slice(1));
             return;
         }
 
-        // WebCodecs编码的数据
+        // WebCodecs data
         if (!this.isDecoderReady) {
-            console.warn('解码器未就绪，丢弃帧');
+            console.warn('Decoder not ready, dropping frame');
             return;
         }
 
@@ -888,11 +858,10 @@ class WebRTCStreamingClient {
 
             this.videoDecoder.decode(chunk);
         } catch (e) {
-            console.warn('解码帧失败:', e);
+            console.warn('Failed to decode frame:', e);
         }
     }
 
-    // JPEG帧显示
     handleJpegFrame(data) {
         const blob = new Blob([data], { type: 'image/jpeg' });
         const url = URL.createObjectURL(blob);
@@ -920,11 +889,10 @@ class WebRTCStreamingClient {
     startRelayFrameSender() {
         if (!this.isBroadcaster) return;
 
-        // 优先使用WebCodecs
         this.initVideoEncoder();
     }
 
-    // ==================== 统计信息 ====================
+    // ==================== Stats ====================
 
     startStatsUpdate() {
         this.statsInterval = setInterval(() => {
@@ -940,7 +908,6 @@ class WebRTCStreamingClient {
     }
 
     async updateStats() {
-        // 更新直播时长
         if (this.streamStartTime) {
             const duration = Math.floor((Date.now() - this.streamStartTime) / 1000);
             const minutes = Math.floor(duration / 60).toString().padStart(2, '0');
@@ -952,12 +919,11 @@ class WebRTCStreamingClient {
             }
         }
 
-        // 获取WebRTC统计
         let totalBytesSent = 0;
         let totalBytesReceived = 0;
         let bitrate = 0;
 
-        for (const [peerId, pc] of this.peerConnections) {
+        for (const [, pc] of this.peerConnections) {
             try {
                 const stats = await pc.getStats();
 
@@ -968,7 +934,7 @@ class WebRTCStreamingClient {
                         if (report.timestamp && this.lastStatsTimestamp) {
                             const timeDiff = report.timestamp - this.lastStatsTimestamp;
                             const bytesDiff = report.bytesSent - (this.lastBytesSent || 0);
-                            bitrate = Math.round((bytesDiff * 8) / timeDiff); // kbps
+                            bitrate = Math.round((bytesDiff * 8) / timeDiff);
                         }
 
                         this.lastStatsTimestamp = report.timestamp;
@@ -992,11 +958,10 @@ class WebRTCStreamingClient {
                     }
                 });
             } catch (err) {
-                console.warn('获取统计失败:', err);
+                console.warn('Failed to get stats:', err);
             }
         }
 
-        // 更新UI
         const bitrateEl = document.getElementById('currentBitrate') || document.getElementById('receivedBitrate');
         if (bitrateEl) {
             bitrateEl.textContent = bitrate;
@@ -1007,7 +972,6 @@ class WebRTCStreamingClient {
             totalSentEl.textContent = (totalBytesSent / 1024 / 1024).toFixed(2);
         }
 
-        // 发送统计到服务器
         if (this.isBroadcaster) {
             this.send({
                 type: 'stats_update',
@@ -1028,7 +992,6 @@ class WebRTCStreamingClient {
         document.getElementById('currentBitrate').textContent = data.current_bitrate || 0;
         document.getElementById('totalSent').textContent = ((data.total_bytes_sent || 0) / 1024 / 1024).toFixed(2);
 
-        // 更新观看者列表
         const viewersList = document.getElementById('viewersList');
         viewersList.innerHTML = '';
 
@@ -1043,19 +1006,19 @@ class WebRTCStreamingClient {
 
                 div.innerHTML = `
                     <span class="viewer-id">${viewer.id}</span>
-                    <span>${minutes}分${seconds}秒</span>
+                    <span>${minutes}m ${seconds}s</span>
                     <span class="connection-type ${viewer.is_p2p ? 'p2p' : 'relay'}">
-                        ${viewer.is_p2p ? 'P2P' : '转发'}
+                        ${viewer.is_p2p ? 'P2P' : 'Relay'}
                     </span>
                 `;
                 viewersList.appendChild(div);
             });
         } else {
-            viewersList.innerHTML = '<div class="viewer-item" style="justify-content: center; color: #888;">暂无观看者</div>';
+            viewersList.innerHTML = '<div class="viewer-item" style="justify-content: center; color: #888;">No viewers yet</div>';
         }
     }
 
-    // ==================== 工具方法 ====================
+    // ==================== Helpers ====================
 
     send(data) {
         if (this.ws && this.ws.readyState === WebSocket.OPEN) {
@@ -1063,16 +1026,32 @@ class WebRTCStreamingClient {
         }
     }
 
-    updateStatus(state, text) {
-        const indicators = document.querySelectorAll('.status-indicator');
-        const statusTexts = document.querySelectorAll('.status-text');
+    // target: 'broadcaster' | 'viewer' | 'both'
+    updateStatus(state, text, target = 'both') {
+        const pairs = [];
 
-        indicators.forEach(el => {
-            el.className = 'status-indicator ' + state;
-        });
+        if (target === 'both' || target === 'broadcaster') {
+            pairs.push({
+                indicatorId: 'broadcasterStatus',
+                textId: 'broadcasterStatusText'
+            });
+        }
 
-        statusTexts.forEach(el => {
-            el.textContent = text;
+        if (target === 'both' || target === 'viewer') {
+            pairs.push({
+                indicatorId: 'viewerStatusIndicator',
+                textId: 'viewerStatusText'
+            });
+        }
+
+        pairs.forEach(({ indicatorId, textId }) => {
+            const indicator = document.getElementById(indicatorId);
+            const textEl = document.getElementById(textId);
+
+            if (!indicator || !textEl) return;
+
+            indicator.className = 'status-indicator ' + state;
+            textEl.textContent = text;
         });
     }
 
@@ -1101,7 +1080,7 @@ class WebRTCStreamingClient {
     }
 }
 
-// ==================== 全局实例和UI控制 ====================
+// ==================== Global instance & UI ====================
 
 let client = null;
 
@@ -1120,7 +1099,6 @@ function selectMode(mode) {
 }
 
 function goBack() {
-    // 停止任何正在进行的直播或观看
     if (client.isBroadcaster && client.roomId) {
         client.stopBroadcast();
     } else if (client.roomId) {
@@ -1150,8 +1128,8 @@ function leaveRoom() {
 function copyRoomId() {
     const roomId = document.getElementById('roomIdDisplay').textContent;
     navigator.clipboard.writeText(roomId).then(() => {
-        client.showMessage('房间号已复制', 'success');
+        client.showMessage('Room ID copied', 'success');
     }).catch(() => {
-        client.showMessage('复制失败', 'error');
+        client.showMessage('Copy failed', 'error');
     });
 }
