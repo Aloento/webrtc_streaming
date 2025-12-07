@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="en">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>WebRTC 视频直播</title>
+    <title>WebRTC Live Streaming</title>
     <style>
       * {
         margin: 0;
@@ -490,8 +490,20 @@
         border-color: #00d9ff;
       }
 
+      .panel-header {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        margin-bottom: 20px;
+      }
+
+      .panel-header .status-bar {
+        flex: 1;
+        margin-bottom: 0;
+      }
+
       .back-btn {
-        position: absolute;
+        position: static;
         top: 20px;
         left: 20px;
         padding: 10px 20px;
@@ -501,7 +513,7 @@
         border-radius: 8px;
         cursor: pointer;
         transition: all 0.3s;
-        z-index: 100;
+        z-index: 1;
       }
 
       .back-btn:hover {
@@ -539,40 +551,46 @@
   <body>
     <div class="container">
       <header>
-        <h1>🎬 WebRTC 视频直播</h1>
-        <p>P2P点对点传输 · 低延迟 · 高清画质</p>
+        <h1>🎬 WebRTC Live Streaming</h1>
+        <p>P2P connections · Low latency · High quality</p>
       </header>
 
-      <!-- 模式选择 -->
+      <!-- Mode selector -->
       <div id="modeSelector" class="mode-selector">
         <button class="mode-btn broadcast" onclick="selectMode('broadcast')">
-          📹 开始直播
+          📹 Start streaming
         </button>
         <button class="mode-btn watch" onclick="selectMode('watch')">
-          👁️ 观看直播
+          👁️ Watch stream
         </button>
       </div>
 
-      <!-- 直播面板 -->
+      <!-- Broadcast panel -->
       <div id="broadcastPanel" class="panel">
-        <button class="back-btn" onclick="goBack()">← 返回</button>
+        <div class="panel-header">
+          <button class="back-btn" onclick="goBack()">← Back</button>
 
-        <div class="status-bar">
-          <div id="broadcasterStatus" class="status-indicator"></div>
-          <span id="broadcasterStatusText" class="status-text">未连接</span>
+          <div class="status-bar">
+            <div id="broadcasterStatus" class="status-indicator"></div>
+            <span id="broadcasterStatusText" class="status-text"
+              >Connected</span
+            >
+          </div>
         </div>
 
         <div class="controls">
           <select id="cameraSelect" class="camera-select">
-            <option value="">选择摄像头...</option>
+            <option value="">Select camera...</option>
           </select>
 
           <div class="quality-selector">
-            <button class="quality-btn" data-quality="low">流畅 480p</button>
+            <button class="quality-btn" data-quality="low">Smooth 480p</button>
             <button class="quality-btn active" data-quality="medium">
-              高清 720p
+              HD 720p
             </button>
-            <button class="quality-btn" data-quality="high">超清 1080p</button>
+            <button class="quality-btn" data-quality="high">
+              Full HD 1080p
+            </button>
           </div>
         </div>
 
@@ -582,7 +600,7 @@
             class="control-btn primary"
             onclick="startBroadcast()"
           >
-            🎬 开始直播
+            🎬 Start streaming
           </button>
           <button
             id="stopBroadcastBtn"
@@ -590,20 +608,20 @@
             onclick="stopBroadcast()"
             disabled
           >
-            ⏹️ 结束直播
+            ⏹️ Stop streaming
           </button>
         </div>
 
         <div id="roomInfo" class="room-info" style="display: none">
-          <div class="room-id-label">房间号</div>
+          <div class="room-id-label">Room ID</div>
           <div id="roomIdDisplay" class="room-id">------</div>
-          <button class="copy-btn" onclick="copyRoomId()">📋 复制房间号</button>
+          <button class="copy-btn" onclick="copyRoomId()">📋 Copy room ID</button>
         </div>
 
         <div class="video-container">
           <div class="video-wrapper main">
             <video id="localVideo" autoplay muted playsinline></video>
-            <span class="video-label">本地预览</span>
+            <span class="video-label">Local preview</span>
             <span id="liveBadge" class="live-badge" style="display: none"
               >🔴 LIVE</span
             >
@@ -611,40 +629,42 @@
         </div>
 
         <div id="broadcasterStats" class="stats-panel" style="display: none">
-          <div class="stats-title">📊 直播统计</div>
+          <div class="stats-title">📊 Stream statistics</div>
           <div class="stats-grid">
             <div class="stat-card">
               <div id="viewerCount" class="stat-value">0</div>
-              <div class="stat-label">观看人数</div>
+              <div class="stat-label">Viewers</div>
             </div>
             <div class="stat-card">
               <div id="currentBitrate" class="stat-value">0</div>
-              <div class="stat-label">当前码率 (kbps)</div>
+              <div class="stat-label">Current bitrate (kbps)</div>
             </div>
             <div class="stat-card">
               <div id="totalSent" class="stat-value">0</div>
-              <div class="stat-label">发送数据 (MB)</div>
+              <div class="stat-label">Data sent (MB)</div>
             </div>
             <div class="stat-card">
               <div id="streamDuration" class="stat-value">00:00</div>
-              <div class="stat-label">直播时长</div>
+              <div class="stat-label">Stream duration</div>
             </div>
           </div>
 
           <div class="viewers-list">
-            <div class="stats-title">👥 观看者列表</div>
+            <div class="stats-title">👥 Viewer list</div>
             <div id="viewersList"></div>
           </div>
         </div>
       </div>
 
-      <!-- 观看面板 -->
+      <!-- Watch panel -->
       <div id="watchPanel" class="panel">
-        <button class="back-btn" onclick="goBack()">← 返回</button>
+        <div class="panel-header">
+          <button class="back-btn" onclick="goBack()">← Back</button>
 
-        <div class="status-bar">
-          <div id="viewerStatusIndicator" class="status-indicator"></div>
-          <span id="viewerStatusText" class="status-text">未连接</span>
+          <div class="status-bar">
+            <div id="viewerStatusIndicator" class="status-indicator"></div>
+            <span id="viewerStatusText" class="status-text">Disconnected</span>
+          </div>
         </div>
 
         <div class="join-form">
@@ -661,7 +681,7 @@
             class="control-btn primary"
             onclick="joinRoom()"
           >
-            ▶️ 进入直播间
+            ▶️ Join room
           </button>
           <button
             id="leaveRoomBtn"
@@ -669,7 +689,7 @@
             onclick="leaveRoom()"
             style="display: none"
           >
-            🚪 离开
+            🚪 Leave
           </button>
         </div>
 
@@ -680,7 +700,7 @@
         >
           <div class="video-wrapper main">
             <video id="remoteVideo" autoplay playsinline></video>
-            <span class="video-label">直播画面</span>
+            <span class="video-label">Live video</span>
             <span
               id="connectionTypeBadge"
               class="live-badge"
@@ -691,30 +711,30 @@
         </div>
 
         <div id="viewerStats" class="stats-panel" style="display: none">
-          <div class="stats-title">📊 连接信息</div>
+          <div class="stats-title">📊 Connection info</div>
           <div class="stats-grid">
             <div class="stat-card">
               <div id="connectionType" class="stat-value">-</div>
-              <div class="stat-label">连接类型</div>
+              <div class="stat-label">Connection type</div>
             </div>
             <div class="stat-card">
               <div id="receivedBitrate" class="stat-value">0</div>
-              <div class="stat-label">接收码率 (kbps)</div>
+              <div class="stat-label">Received bitrate (kbps)</div>
             </div>
             <div class="stat-card">
               <div id="packetsLost" class="stat-value">0</div>
-              <div class="stat-label">丢包数</div>
+              <div class="stat-label">Packets lost</div>
             </div>
             <div class="stat-card">
               <div id="latency" class="stat-value">0</div>
-              <div class="stat-label">延迟 (ms)</div>
+              <div class="stat-label">Latency (ms)</div>
             </div>
           </div>
         </div>
       </div>
 
       <footer>
-        <p>Powered by WebRTC · P2P优先 · TURN回退 · 服务器转发</p>
+        <p>Powered by WebRTC · P2P first · TURN fallback · Server relay</p>
       </footer>
     </div>
 
